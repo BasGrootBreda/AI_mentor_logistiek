@@ -608,6 +608,14 @@ export default function TestChatBot() {
     } catch (error: any) {
       console.error('Streaming error:', error)
       
+     if (error.message?.includes('fetch failed')) {
+       // Request failed due to network/API key issues
+       if (!currentStreamingResponseRef.current) {
+         setResponse('❌ Kan geen verbinding maken met Gemini API. Check je GEMINI_API_KEY in Netlify environment variables.')
+       } else {
+         setResponse(currentStreamingResponseRef.current)
+       }
+     } else
       if (error.name === 'AbortError') {
         // Request was aborted - keep current streaming response if available
         if (!currentStreamingResponseRef.current) {
