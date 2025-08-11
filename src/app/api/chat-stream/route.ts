@@ -85,6 +85,11 @@ export async function POST(request: NextRequest) {
             try {
               return await model.generateContentStream(requestConfig)
             } catch (error: any) {
+             // Handle fetch failed errors specifically
+             if (error.message?.includes('fetch failed')) {
+               throw new Error('Kan geen verbinding maken met Gemini API. Check je GEMINI_API_KEY in environment variables en probeer opnieuw.')
+             }
+             
               // Handle authentication errors specifically
               if (error.status === 403 || error.message?.includes('unregistered callers')) {
                 throw new Error('Gemini API key is ongeldig of heeft geen toegang. Check je API key in de environment variables.')
