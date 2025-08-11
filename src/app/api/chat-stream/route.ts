@@ -30,6 +30,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Validate API key format
+    const apiKey = process.env.GEMINI_API_KEY.trim()
+    if (!apiKey.startsWith('AIza') && !apiKey.startsWith('gai_')) {
+      console.error('Invalid GEMINI_API_KEY format')
+      return NextResponse.json(
+        { 
+          error: 'Ongeldige API key format. Check je Gemini API key.',
+          hint: 'API key moet beginnen met "AIza" of "gai_"',
+          debug: 'GEMINI_API_KEY has invalid format'
+        }, 
+        { status: 500 }
+      )
+    }
+
     // Parse request data
     const body = await request.json()
     console.log('Received request body:', body)
@@ -71,6 +85,11 @@ export async function POST(request: NextRequest) {
             try {
               return await model.generateContentStream(requestConfig)
             } catch (error: any) {
+              // Handle authentication errors specifically
+              if (error.status === 403 || error.message?.includes('unregistered callers')) {
+                throw new Error('Gemini API key is ongeldig of heeft geen toegang. Check je API key in de environment variables.')
+              }
+              
               // If grounding fails, retry without tools
               if (useGrounding && (error.message?.includes('Search Grounding is not supported') || 
                                   error.message?.includes('google_search_retrieval is not supported'))) {
@@ -157,16 +176,28 @@ export async function POST(request: NextRequest) {
         } catch (error) {
           console.error('Streaming error:', error)
           
-          // Send error to client
-          const errorData = JSON.stringify({
-            error: true,
-            message: error instanceof Error ? error.message : 'Streaming error occurred'
-          })
-          
-          controller.enqueue(
-            new TextEncoder().encode(`data: ${errorData}\n\n`)
-          )
-          
+          // Handle specific authentication errors
+          if (error instanceof Error && (error.message.includes('unregistered callers') || error.message.includes('API key'))) {
+            const errorData = JSON.stringify({
+              error: true,
+              message: 'Gemini API key probleem: Check je API key in Netlify environment variables',
+              hint: 'Ga naar Netlify dashboard → Site Settings → Environment Variables en controleer GEMINI_API_KEY'
+            })
+            
+            controller.enqueue(
+              new TextEncoder().encode(`data: ${errorData}\n\n`)
+            )
+          } else {
+            // Send generic error to client
+            const errorData = JSON.stringify({
+              error: true,
+              message: error instanceof Error ? error.message : 'Streaming error occurred'
+            })
+            
+            controller.enqueue(
+              new TextEncoder().encode(`data: ${errorData}\n\n`)
+            )
+          }
           controller.close()
         }
       }
@@ -188,6 +219,19 @@ export async function POST(request: NextRequest) {
     console.error('Streaming API error:', error)
     
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    
+    // Handle authentication errors at the top level too
+    if (errorMessage.includes('unregistered callers') || errorMessage.includes('API key')) {
+      return NextResponse.json(
+        { 
+          error: 'Gemini API authenticatie gefaald',
+          details: 'Je API key is ongeldig of ontbreekt. Check je Netlify environment variables.',
+          hint: 'Ga naar Netlify dashboard → Site Settings → Environment Variables → GEMINI_API_KEY',
+          timestamp: new Date().toISOString()
+        },
+        { status: 403 }
+      )
+    }
     
     return NextResponse.json(
       { 
